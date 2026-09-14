@@ -1,6 +1,5 @@
-// Token tax meter — local server.
-// Reads API keys from .env.local (sibling file), serves index.html,
-// and returns billed token counts for any configured model.
+// Token tax meter — local server. Runs the same handlers Vercel runs from
+// api/, plus index.html. Reads keys from .env.local.
 //
 //   node server.mjs            → http://localhost:4400
 //   PORT=5000 node server.mjs  → custom port
@@ -14,7 +13,6 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-// ---------- .env.local ----------
 function loadEnv(file) {
   if (!existsSync(file)) return;
   for (const raw of readFileSync(file, "utf8").split("\n")) {
@@ -30,51 +28,13 @@ function loadEnv(file) {
 }
 loadEnv(join(here, ".env.local"));
 
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || "";
-const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const PORT = Number(process.env.PORT || 4400);
-
-// ---------- models.json ----------
-const models = JSON.parse(readFileSync(join(here, "models.json"), "utf8"));
-
-// ---------- counting ----------
-// Both providers report the billed input count for a whole request, which
-// includes a fixed per-message envelope. The UI measures the envelope once
-// (a one-character message minus one) and subtracts it.
-
-async function countAnthropic(model, text) {
-  const res = await fetch("https://api.anthropic.com/v1/messages/count_tokens", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({ model, messages: [{ role: "user", content: text }] }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || `Anthropic HTTP ${res.status}`);
-  return data.input_tokens;
-}
-
-async function countOpenAI(model, text) {
-  // OpenAI has no count endpoint; the billed figure is usage.prompt_tokens
-  // on a real completion. max_completion_tokens: 1 keeps it near-free.
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${OPENAI_KEY}` },
-    body: JSON.stringify({ model, max_completion_tokens: 1, messages: [{ role: "user", content: text }] }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || `OpenAI HTTP ${res.status}`);
-  return data.usage.prompt_tokens;
-}
-
-// ---------- http ----------
-function send(res, status, body, type = "application/json") {
-  res.writeHead(status, { "content-type": type });
-  res.end(type === "application/json" ? JSON.stringify(body) : body);
-}
+const { keys } = await import("./lib/providers.mjs");
+const routes = {
+  "/api/config": (await import("./api/config.js")).default,
+  "/api/count": (await import("./api/count.js")).default,
+  "/api/translate": (await import("./api/translate.js")).default,
+};
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -87,41 +47,24 @@ function readBody(req) {
 
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
+  // Minimal Vercel-style res helpers so api/*.js runs unchanged.
+  res.status = (c) => { res.statusCode = c; return res; };
+  res.json = (b) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify(b)); };
 
   if (req.method === "GET" && url.pathname === "/") {
-    return send(res, 200, readFileSync(join(here, "index.html"), "utf8"), "text/html; charset=utf-8");
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    return res.end(readFileSync(join(here, "index.html"), "utf8"));
   }
-
-  if (req.method === "GET" && url.pathname === "/api/config") {
-    return send(res, 200, {
-      keys: { anthropic: Boolean(ANTHROPIC_KEY), openai: Boolean(OPENAI_KEY) },
-      models,
-    });
+  const handler = routes[url.pathname];
+  if (!handler) return res.status(404).json({ error: "not found" });
+  try {
+    if (req.method === "POST") req.body = await readBody(req);
+  } catch {
+    return res.status(400).json({ error: "invalid JSON body" });
   }
-
-  if (req.method === "POST" && url.pathname === "/api/count") {
-    try {
-      const { provider, model, text } = await readBody(req);
-      if (!provider || !model || typeof text !== "string") return send(res, 400, { error: "provider, model and text are required" });
-      if (provider === "anthropic") {
-        if (!ANTHROPIC_KEY) return send(res, 400, { error: "ANTHROPIC_API_KEY is not set in .env.local" });
-        return send(res, 200, { tokens: await countAnthropic(model, text) });
-      }
-      if (provider === "openai") {
-        if (!OPENAI_KEY) return send(res, 400, { error: "OPENAI_API_KEY is not set in .env.local" });
-        return send(res, 200, { tokens: await countOpenAI(model, text) });
-      }
-      return send(res, 400, { error: `unknown provider: ${provider}` });
-    } catch (e) {
-      return send(res, 502, { error: e.message });
-    }
-  }
-
-  send(res, 404, { error: "not found" });
+  return handler(req, res);
 }).listen(PORT, () => {
-  const k = [];
-  if (ANTHROPIC_KEY) k.push("Anthropic");
-  if (OPENAI_KEY) k.push("OpenAI");
+  const k = Object.entries(keys()).filter(([, v]) => v).map(([n]) => n);
   console.log(`token tax meter → http://localhost:${PORT}`);
   console.log(k.length ? `keys loaded: ${k.join(", ")}` : "no keys found — copy .env.local.example to .env.local and add yours");
 });

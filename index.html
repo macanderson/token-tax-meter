@@ -4,21 +4,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Token tax meter</title>
+<meta name="description" content="The same sentence costs up to 8× more tokens in some languages. Measure it with real billed counts, then share the receipt.">
+<meta property="og:title" content="Token tax meter">
+<meta property="og:description" content="Same sentence. Same model. Different bill. See what your language pays in tokens.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%A7%BE%3C/text%3E%3C/svg%3E">
 <style>
   :root { --ink:#17171a; --mute:#6b6b73; --line:#d9d9de; --accent:#1d4ed8; --hot:#b42318; --bg:#fafafa; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 "Iowan Old Style","Palatino Linotype",Georgia,serif; }
   main { max-width:960px; margin:0 auto; padding:40px 20px 64px; }
   h1 { font-size:34px; line-height:1.1; margin:0 0 8px; font-weight:400; letter-spacing:-0.01em; }
+  h2 { font-size:22px; font-weight:400; margin:40px 0 6px; }
   p.lede { color:var(--mute); margin:0 0 24px; max-width:60ch; }
   fieldset { border:1px solid var(--line); border-radius:8px; padding:12px 16px; margin:0 0 16px; }
   legend { color:var(--mute); font-size:13px; padding:0 6px; }
   .models { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:6px 16px; }
   label.m { display:flex; gap:8px; align-items:center; font-size:15px; }
   label.m.off { color:var(--mute); }
+  .phrase { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start; }
+  textarea { flex:1 1 360px; font:inherit; font-size:15px; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; resize:vertical; min-height:44px; }
+  .hint { color:var(--mute); font-size:13px; margin:6px 0 0; }
   .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:16px 0 20px; }
-  button { font:inherit; font-size:15px; padding:8px 14px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); cursor:pointer; }
+  button, select { font:inherit; font-size:15px; padding:8px 14px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); cursor:pointer; }
   button.primary { background:var(--ink); color:#fff; border-color:var(--ink); }
+  button.hot { background:var(--hot); color:#fff; border-color:var(--hot); }
   button:disabled { opacity:.5; cursor:default; }
   .wrap { overflow-x:auto; }
   table { border-collapse:collapse; font-size:15px; min-width:100%; }
@@ -33,12 +43,28 @@
   .status.error { color:var(--hot); }
   .note { margin-top:28px; padding-top:16px; border-top:1px solid var(--line); color:var(--mute); font-size:14px; max-width:64ch; }
   code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.92em; }
+  #share { display:none; }
+  #share.on { display:block; }
+  .preview { margin-top:14px; display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; }
+  canvas#card { width:min(100%,420px); height:auto; border-radius:10px; box-shadow:0 20px 50px rgba(0,0,0,.18); }
+  .sharecol { flex:1 1 260px; }
+  .sharecol p { margin:0 0 10px; color:var(--mute); font-size:14px; }
+  .sharecol textarea { width:100%; min-height:92px; }
 </style>
 </head>
 <body>
 <main>
   <h1>Token tax meter</h1>
   <p class="lede">The same sentence in six languages, sent to each model you pick. Every number is the billed input count reported by the provider, with the fixed message envelope subtracted. Nothing is estimated.</p>
+
+  <fieldset>
+    <legend>Phrase</legend>
+    <div class="phrase">
+      <textarea id="phrase" maxlength="600" rows="2" placeholder="Type anything…">Hello, how are you today? I hope everything is going well.</textarea>
+      <button id="translate">Translate</button>
+    </div>
+    <p class="hint" id="phrasehint">Default phrase uses hand-checked translations. Edit it and press Translate to get all six languages from Gemini 2.5 Flash, then Measure.</p>
+  </fieldset>
 
   <fieldset>
     <legend>Models</legend>
@@ -59,24 +85,47 @@
   </div>
   <div class="status" id="status"></div>
 
+  <section id="share">
+    <h2>Share the receipt</h2>
+    <p class="lede">A 1080×1350 image built from these exact numbers. Pick the cashier, then download, copy, or share.</p>
+    <div class="controls">
+      <select id="cashier" aria-label="Model shown on the receipt"></select>
+      <button class="hot" id="download">Download PNG</button>
+      <button id="copyimg">Copy image</button>
+      <button id="sharebtn">Share…</button>
+    </div>
+    <div class="preview">
+      <canvas id="card" width="1080" height="1350" aria-label="Token tax receipt"></canvas>
+      <div class="sharecol">
+        <p>Suggested caption (attach the image):</p>
+        <textarea id="caption" readonly></textarea>
+        <div class="controls"><button id="copycap">Copy caption</button><a id="tweet" target="_blank" rel="noopener"><button>Post on X</button></a></div>
+      </div>
+    </div>
+  </section>
+
   <div class="note">
-    Anthropic counts come from <code>/v1/messages/count_tokens</code>. OpenAI has no count endpoint, so each cell is <code>usage.prompt_tokens</code> from a one-token completion. The envelope is measured per model by sending a single character and subtracting one. Edit <code>models.json</code> to add or remove models; keys live in <code>.env.local</code>.
+    Counts are the upstream provider's own <code>usage.prompt_tokens</code> (via OpenRouter with native usage reporting, or the direct Anthropic/OpenAI endpoints when their keys are set). The envelope is measured per model by sending a single character and subtracting one. Prices are OpenRouter's listed input rate. Edit <code>models.json</code> to add or remove models; keys live in <code>.env.local</code>.
   </div>
 </main>
 
 <script>
-const SENTENCES = [
-  ["English", "Hello, how are you today? I hope everything is going well."],
-  ["Spanish", "Hola, ¿cómo estás hoy? Espero que todo vaya bien."],
-  ["Arabic",  "مرحبا، كيف حالك اليوم؟ أتمنى أن يكون كل شيء على ما يرام."],
-  ["Hindi",   "नमस्ते, आज आप कैसे हैं? मुझे आशा है कि सब कुछ ठीक चल रहा है।"],
-  ["Chinese", "你好，你今天怎么样？我希望一切都顺利。"],
-  ["Burmese", "မင်္ဂလာပါ၊ ဒီနေ့ နေကောင်းလား? အားလုံး ကောင်းကောင်းဖြစ်ပါစေလို့ မျှော်လင့်ပါတယ်။"],
-];
+const DEFAULT = {
+  English: "Hello, how are you today? I hope everything is going well.",
+  Spanish: "Hola, ¿cómo estás hoy? Espero que todo vaya bien.",
+  Arabic:  "مرحبا، كيف حالك اليوم؟ أتمنى أن يكون كل شيء على ما يرام.",
+  Hindi:   "नमस्ते, आज आप कैसे हैं? मुझे आशा है कि सब कुछ ठीक चल रहा है।",
+  Chinese: "你好，你今天怎么样？我希望一切都顺利。",
+  Burmese: "မင်္ဂလာပါ၊ ဒီနေ့ နေကောင်းလား? အားလုံး ကောင်းကောင်းဖြစ်ပါစေလို့ မျှော်လင့်ပါတယ်။",
+};
+const FLAGS = { English: "🇬🇧", Spanish: "🇪🇸", Arabic: "🇸🇦", Hindi: "🇮🇳", Chinese: "🇨🇳", Burmese: "🇲🇲" };
 
 const $ = (id) => document.getElementById(id);
 let config = null;
-let results = null; // { [modelId]: { envelope, counts: {lang: n}, error } }
+let sentences = { ...DEFAULT };     // { lang: text } — what gets measured
+let measured = null;                // snapshot of sentences at Measure time
+let results = null;                 // { [modelId]: { envelope, counts: {lang: n}, error } }
+const langs = () => config.languages;
 
 async function init() {
   config = await (await fetch("/api/config")).json();
@@ -88,8 +137,8 @@ async function init() {
     l.innerHTML = `<input type="checkbox" value="${m.id}" ${hasKey ? "checked" : "disabled"}> ${m.label}${hasKey ? "" : " (no key)"}`;
     box.appendChild(l);
   }
-  const missing = Object.entries(config.keys).filter(([, v]) => !v).map(([k]) => k);
-  if (missing.length) $("status").textContent = `No key for ${missing.join(" or ")} in .env.local — those models are disabled.`;
+  if (!config.models.some((m) => config.keys[m.provider])) $("status").textContent = "No API key configured — every model is disabled.";
+  $("phrase").maxLength = config.maxText;
 }
 
 function selected() {
@@ -97,21 +146,45 @@ function selected() {
   return config.models.filter((m) => ids.includes(m.id));
 }
 
-async function count(m, text) {
-  const r = await fetch("/api/count", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: m.provider, model: m.id, text }) });
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const d = await r.json();
   if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-  return d.tokens;
+  return d;
 }
+const count = (m, text) => post("/api/count", { provider: m.provider, model: m.id, text }).then((d) => d.tokens);
 
+// ---------- phrase / translation ----------
+$("phrase").addEventListener("input", () => {
+  const v = $("phrase").value.trim();
+  if (v === DEFAULT.English) { sentences = { ...DEFAULT }; $("phrasehint").textContent = "Default phrase uses hand-checked translations."; }
+  else if (sentences.English !== v) { $("phrasehint").textContent = "Phrase changed — press Translate before Measure."; }
+});
+
+$("translate").addEventListener("click", async () => {
+  const text = $("phrase").value.trim();
+  if (!text) return;
+  if (text === DEFAULT.English) { sentences = { ...DEFAULT }; $("phrasehint").textContent = "Default phrase uses hand-checked translations."; return; }
+  $("translate").disabled = true; $("run").disabled = true;
+  $("phrasehint").textContent = "Translating…";
+  try {
+    const d = await post("/api/translate", { text });
+    sentences = d.translations;
+    $("phrasehint").textContent = `Translated from ${d.source}: ` + langs().filter((l) => l !== d.source).map((l) => `${l} “${sentences[l]}”`).join(" · ");
+  } catch (e) {
+    $("phrasehint").textContent = `Translation failed: ${e.message}`;
+  }
+  $("translate").disabled = false; $("run").disabled = false;
+});
+
+// ---------- measuring ----------
 function render(models) {
-  const head = $("head");
-  head.innerHTML = "<th>Language</th>" + models.map((m) => `<th class="model">${m.label}</th>`).join("");
+  $("head").innerHTML = "<th>Language</th>" + models.map((m) => `<th class="model">${m.label}</th>`).join("");
   const rows = $("rows");
   rows.innerHTML = "";
-  for (const [lang] of SENTENCES) {
+  for (const lang of langs()) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${lang}</td>` + models.map((m) => {
+    tr.innerHTML = `<td title="${measured[lang].replace(/"/g, "&quot;")}">${lang}</td>` + models.map((m) => {
       const r = results[m.id];
       const n = r?.counts?.[lang];
       if (r?.error) return `<td class="n">—</td>`;
@@ -129,40 +202,50 @@ function render(models) {
   rows.appendChild(env);
 }
 
+async function measureModel(m, models) {
+  const r = results[m.id];
+  try {
+    r.envelope = (await count(m, "x")) - 1;
+    await Promise.all(langs().map(async (lang) => {
+      r.counts[lang] = Math.max(1, (await count(m, measured[lang])) - r.envelope);
+      render(models);
+    }));
+  } catch (e) {
+    r.error = e.message;
+    render(models);
+  }
+}
+
 $("run").addEventListener("click", async () => {
   const models = selected();
   if (!models.length) { $("status").textContent = "Pick at least one model."; return; }
-  $("run").disabled = true; $("csv").disabled = true; $("copy").disabled = true;
+  const typed = $("phrase").value.trim();
+  if (typed !== sentences.English && typed !== DEFAULT.English) { $("status").textContent = "Press Translate first so all six languages match your phrase."; return; }
+  measured = { ...sentences };
+  for (const b of ["run", "csv", "copy", "translate"]) $(b).disabled = true;
   $("status").className = "status";
+  $("status").textContent = `Measuring ${models.length} model${models.length > 1 ? "s" : ""}…`;
+  $("share").classList.remove("on");
   results = Object.fromEntries(models.map((m) => [m.id, { envelope: null, counts: {} }]));
   render(models);
 
-  for (const m of models) {
-    const r = results[m.id];
-    try {
-      $("status").textContent = `${m.label}: measuring envelope…`;
-      r.envelope = (await count(m, "x")) - 1;
-      for (const [lang, text] of SENTENCES) {
-        $("status").textContent = `${m.label}: ${lang}…`;
-        r.counts[lang] = Math.max(1, (await count(m, text)) - r.envelope);
-        render(models);
-      }
-    } catch (e) {
-      r.error = e.message;
-      render(models);
-    }
-  }
+  // Three models at a time keeps well inside provider rate limits.
+  const queue = [...models];
+  await Promise.all(Array.from({ length: 3 }, async () => { while (queue.length) await measureModel(queue.shift(), models); }));
+
   const failed = models.filter((m) => results[m.id].error);
   $("status").className = "status" + (failed.length ? " error" : "");
   $("status").textContent = failed.length
     ? `Done. Failed: ${failed.map((m) => `${m.label} (${results[m.id].error})`).join("; ")}`
     : "Done.";
-  $("run").disabled = false; $("csv").disabled = false; $("copy").disabled = false;
+  for (const b of ["run", "csv", "copy", "translate"]) $(b).disabled = false;
+  setupShare(models.filter((m) => !results[m.id].error));
 });
 
+// ---------- export ----------
 function table(models) {
   const header = ["language", ...models.map((m) => m.id)];
-  const lines = SENTENCES.map(([lang]) => [lang, ...models.map((m) => results[m.id].counts[lang] ?? "")]);
+  const lines = langs().map((lang) => [lang, ...models.map((m) => results[m.id].counts[lang] ?? "")]);
   return { header, lines };
 }
 
@@ -182,6 +265,232 @@ $("copy").addEventListener("click", async () => {
   const text = [header.join("\t"), ...lines.map((r) => r.join("\t"))].join("\n");
   try { await navigator.clipboard.writeText(text); $("copy").textContent = "Copied"; setTimeout(() => ($("copy").textContent = "Copy as text"), 1500); }
   catch { $("status").textContent = "Clipboard blocked — select the table and copy manually."; }
+});
+
+// ---------- share image: the receipt ----------
+const W = 1080, H = 1350;
+const canvas = $("card");
+const ctx = canvas.getContext("2d");
+const MONO = '"Courier New", Courier, "Liberation Mono", monospace';
+const SANS = '-apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Myanmar", "Noto Sans Devanagari", "Noto Sans Arabic", "Noto Sans SC", sans-serif';
+
+function setupShare(models) {
+  if (!models.length) return;
+  const sel = $("cashier");
+  sel.innerHTML = models.map((m) => `<option value="${m.id}">${m.label}</option>`).join("");
+  // Default to the model with the widest gap — that's the funny one.
+  let best = models[0], bestR = 0;
+  for (const m of models) { const r = worst(m).ratio; if (r > bestR) { bestR = r; best = m; } }
+  sel.value = best.id;
+  $("share").classList.add("on");
+  drawReceipt(best);
+  $("share").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function worst(m) {
+  const c = results[m.id].counts;
+  const en = c.English || 1;
+  let lang = "English", ratio = 1;
+  for (const l of langs()) { const r = (c[l] || 0) / en; if (r > ratio) { ratio = r; lang = l; } }
+  return { lang, ratio, tokens: c[lang], en };
+}
+
+$("cashier").addEventListener("change", () => drawReceipt(config.models.find((m) => m.id === $("cashier").value)));
+
+function quip(lang, ratio) {
+  if (ratio >= 6) return `${lang} speakers: congratulations, you're subsidising everyone else.`;
+  if (ratio >= 4) return `Same words. ${ratio.toFixed(1)}× the bill. The tokenizer has opinions.`;
+  if (ratio >= 2.5) return `Fluent in ${lang}? Fluent in overpaying.`;
+  if (ratio >= 1.5) return `Not outrageous. Still a tax.`;
+  return `Rare sighting: a tokenizer that's almost fair.`;
+}
+
+function money(usd) {
+  if (usd >= 10) return "$" + usd.toFixed(0);
+  if (usd >= 1) return "$" + usd.toFixed(2);
+  return "$" + usd.toFixed(3);
+}
+
+function wrap(text, font, maxWidth, maxLines) {
+  ctx.font = font;
+  const words = text.split(/\s+/);
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    const t = cur ? cur + " " + w : w;
+    if (ctx.measureText(t).width <= maxWidth || !cur) cur = t;
+    else { lines.push(cur); cur = w; }
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > maxLines) {
+    const cut = lines.slice(0, maxLines);
+    let last = cut[maxLines - 1];
+    while (ctx.measureText(last + "…").width > maxWidth && last.length) last = last.slice(0, -1);
+    cut[maxLines - 1] = last + "…";
+    return cut;
+  }
+  return lines;
+}
+
+function ellipsis(text, font, maxWidth) {
+  ctx.font = font;
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let t = text;
+  while (t.length && ctx.measureText(t + "…").width > maxWidth) t = t.slice(0, -1);
+  return t + "…";
+}
+
+function dashed(x1, x2, y) {
+  ctx.save();
+  ctx.strokeStyle = "#8a8a8a"; ctx.lineWidth = 2; ctx.setLineDash([8, 8]);
+  ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+  ctx.restore();
+}
+
+function heat(ratio) { // 1× → calm green, 8× → alarm red
+  const t = Math.max(0, Math.min(1, (ratio - 1) / 6));
+  return `hsl(${Math.round(130 - 130 * t)} 78% ${Math.round(42 - 6 * t)}%)`;
+}
+
+function drawReceipt(m) {
+  const r = results[m.id];
+  const c = r.counts;
+  const en = c.English || 1;
+  const order = langs().slice().sort((a, b) => (c[a] || 0) - (c[b] || 0));
+  const max = Math.max(...order.map((l) => c[l] || 0));
+  const w = worst(m);
+  const price = m.price; // $/token or null
+  const phrase = measured.English;
+
+  // Backdrop
+  ctx.clearRect(0, 0, W, H);
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, "#ff5f6d"); g.addColorStop(0.55, "#ff9a3c"); g.addColorStop(1, "#ffd400");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalAlpha = 0.14; ctx.fillStyle = "#000";
+  for (let i = -H; i < W + H; i += 46) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + H, H); ctx.lineTo(i + H + 14, H); ctx.lineTo(i + 14, 0); ctx.fill(); }
+  ctx.restore();
+
+  // Paper
+  const PW = 860, PX = (W - PW) / 2, PAD = 52, L = PX + PAD, R = PX + PW - PAD;
+  const rowH = 86;
+  const PH = 1290, PY = 30;
+  ctx.save();
+  ctx.translate(W / 2, H / 2); ctx.rotate(-0.018); ctx.translate(-W / 2, -H / 2);
+  ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 40; ctx.shadowOffsetY = 18;
+  ctx.fillStyle = "#fbfaf5";
+  ctx.beginPath();
+  ctx.moveTo(PX, PY);
+  ctx.lineTo(PX + PW, PY);
+  ctx.lineTo(PX + PW, PY + PH - 14);
+  for (let x = PX + PW; x > PX; x -= 24) { ctx.lineTo(x - 12, PY + PH); ctx.lineTo(x - 24, PY + PH - 14); }
+  ctx.closePath(); ctx.fill();
+  ctx.shadowColor = "transparent";
+
+  let y = PY + 78;
+  ctx.fillStyle = "#151515"; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  ctx.font = `bold 50px ${MONO}`; ctx.fillText("TOKEN TAX RECEIPT", W / 2, y); y += 40;
+  ctx.font = `22px ${MONO}`; ctx.fillStyle = "#444";
+  ctx.fillText("* SAME SENTENCE * SAME MODEL * DIFFERENT BILL *", W / 2, y); y += 34;
+  dashed(L, R, y); y += 42;
+
+  ctx.textAlign = "left"; ctx.fillStyle = "#151515"; ctx.font = `22px ${MONO}`;
+  ctx.fillText(`CASHIER: ${m.label.toUpperCase()}`, L, y);
+  ctx.textAlign = "right"; ctx.fillText(new Date().toISOString().slice(0, 10), R, y); y += 34;
+  ctx.textAlign = "left"; ctx.fillText("ITEM: 1 × sentence, as spoken by a human", L, y); y += 40;
+
+  const lines = wrap(`“${phrase}”`, `italic 27px ${SANS}`, R - L, 2);
+  ctx.font = `italic 27px ${SANS}`; ctx.fillStyle = "#222";
+  for (const ln of lines) { ctx.fillText(ln, L, y); y += 36; }
+  y += 6; dashed(L, R, y); y += 38;
+
+  ctx.font = `20px ${MONO}`; ctx.fillStyle = "#666";
+  ctx.fillText("LANGUAGE", L, y); ctx.textAlign = "right"; ctx.fillText("TOKENS    TAX", R, y); ctx.textAlign = "left"; y += 22;
+
+  const barMax = R - L - 250;
+  for (const lang of order) {
+    const n = c[lang] || 0, ratio = n / en;
+    const isWorst = lang === w.lang && ratio > 1;
+    ctx.fillStyle = "#151515"; ctx.font = `bold 26px ${MONO}`; ctx.textAlign = "left";
+    ctx.fillText(`${FLAGS[lang] || ""} ${lang.toUpperCase()}`, L, y + 26);
+    ctx.textAlign = "right"; ctx.font = `bold 26px ${MONO}`;
+    ctx.fillStyle = isWorst ? "#c81e1e" : "#151515";
+    ctx.fillText(`${String(n).padStart(4, " ")}  ${ratio.toFixed(1).padStart(4, " ")}×`, R, y + 26);
+    ctx.textAlign = "left"; ctx.font = `19px ${SANS}`; ctx.fillStyle = "#6a6a6a";
+    ctx.fillText(ellipsis(measured[lang], `19px ${SANS}`, R - L - 200), L, y + 54);
+    // bar
+    const bw = Math.max(6, Math.round(barMax * (n / (max || 1))));
+    ctx.fillStyle = "#e9e6dc"; ctx.fillRect(L, y + 66, barMax, 12);
+    ctx.fillStyle = heat(ratio); ctx.fillRect(L, y + 66, bw, 12);
+    y += rowH;
+  }
+  y += 4; dashed(L, R, y); y += 40;
+
+  ctx.font = `24px ${MONO}`; ctx.fillStyle = "#151515"; ctx.textAlign = "left";
+  ctx.fillText("SUBTOTAL (ENGLISH)", L, y); ctx.textAlign = "right"; ctx.fillText(`${en} tok`, R, y); y += 36;
+  ctx.textAlign = "left"; ctx.fillStyle = "#c81e1e"; ctx.font = `bold 24px ${MONO}`;
+  ctx.fillText(`${w.lang.toUpperCase()} SURCHARGE`, L, y); ctx.textAlign = "right"; ctx.fillText(`+${Math.round((w.ratio - 1) * 100)}%`, R, y); y += 36;
+  if (price) {
+    ctx.textAlign = "left"; ctx.fillStyle = "#151515"; ctx.font = `24px ${MONO}`;
+    ctx.fillText("PER 1M SENDS (EN → " + w.lang.toUpperCase() + ")", L, y);
+    ctx.textAlign = "right"; ctx.fillText(`${money(price * en * 1e6)} → ${money(price * w.tokens * 1e6)}`, R, y); y += 36;
+  }
+  y += 6; dashed(L, R, y); y += 40;
+
+  ctx.textAlign = "center"; ctx.fillStyle = "#151515"; ctx.font = `bold 24px ${SANS}`;
+  for (const ln of wrap(quip(w.lang, w.ratio), `bold 24px ${SANS}`, R - L, 2)) { ctx.fillText(ln, W / 2, y); y += 32; }
+  y += 10;
+  const barY = y;
+
+  // barcode + url
+  let seed = 7;
+  for (let x = L + 60; x < R - 60; x += 6) { seed = (seed * 9301 + 49297) % 233280; const t = seed / 233280; ctx.fillStyle = "#151515"; if (t > 0.45) ctx.fillRect(x, y, t > 0.8 ? 4 : 2, 54); }
+  y += 80;
+  ctx.font = `22px ${MONO}`; ctx.fillStyle = "#444";
+  ctx.fillText(location.host.replace(/^www\./, "") || "token-tax-meter", W / 2, y);
+
+  // stamp
+  ctx.save();
+  ctx.translate(W / 2 + 250, barY + 10); ctx.rotate(-0.12);
+  ctx.globalAlpha = 0.85; ctx.strokeStyle = "#c81e1e"; ctx.lineWidth = 6;
+  ctx.strokeRect(-190, -42, 380, 84);
+  ctx.fillStyle = "#c81e1e"; ctx.font = `bold 40px ${MONO}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("PAID IN TOKENS", 0, 2);
+  ctx.restore();
+  ctx.restore();
+
+  // caption
+  const cap = `Same sentence. Same model (${m.label}). ${w.lang} costs ${w.ratio.toFixed(1)}× more tokens than English.\n\nThe token tax is real. Measure yours: ${location.origin}\n#TokenTax #LLM #AI`;
+  $("caption").value = cap;
+  $("tweet").href = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(cap);
+}
+
+const blob = () => new Promise((res) => canvas.toBlob(res, "image/png"));
+const fname = () => `token-tax-${$("cashier").value.replace(/[^a-z0-9]+/gi, "-")}.png`;
+
+$("download").addEventListener("click", async () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(await blob());
+  a.download = fname();
+  a.click();
+});
+
+$("copyimg").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": await blob() })]);
+    $("copyimg").textContent = "Copied"; setTimeout(() => ($("copyimg").textContent = "Copy image"), 1500);
+  } catch { $("status").textContent = "Image clipboard not supported here — use Download."; }
+});
+
+$("sharebtn").addEventListener("click", async () => {
+  const file = new File([await blob()], fname(), { type: "image/png" });
+  const data = { files: [file], title: "Token tax receipt", text: $("caption").value };
+  if (navigator.canShare?.(data)) { try { await navigator.share(data); } catch {} }
+  else $("status").textContent = "Native sharing not available — Download the PNG and attach it.";
+});
+
+$("copycap").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("caption").value); $("copycap").textContent = "Copied"; setTimeout(() => ($("copycap").textContent = "Copy caption"), 1500); } catch {}
 });
 
 init();

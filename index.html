@@ -9,12 +9,15 @@
 <meta property="og:description" content="Same sentence. Same model. Different bill. See what your language pays in tokens.">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%A7%BE%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
 <style>
-  :root { --ink:#17171a; --mute:#6b6b73; --line:#d9d9de; --accent:#1d4ed8; --hot:#b42318; --bg:#fafafa; }
+  :root { --ink:#17171a; --mute:#6b6b73; --line:#d9d9de; --accent:#1d4ed8; --hot:#b42318; --bg:#fafafa; --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace; }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 "Iowan Old Style","Palatino Linotype",Georgia,serif; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 var(--mono); }
   main { max-width:960px; margin:0 auto; padding:40px 20px 64px; }
-  h1 { font-size:34px; line-height:1.1; margin:0 0 8px; font-weight:400; letter-spacing:-0.01em; }
+  h1 { font-size:32px; line-height:1.1; margin:0 0 8px; font-weight:700; letter-spacing:-0.02em; }
   h2 { font-size:22px; font-weight:400; margin:40px 0 6px; }
   p.lede { color:var(--mute); margin:0 0 24px; max-width:60ch; }
   fieldset { border:1px solid var(--line); border-radius:8px; padding:12px 16px; margin:0 0 16px; }
@@ -42,7 +45,18 @@
   .status { margin-top:14px; color:var(--mute); font-size:14px; min-height:1.5em; }
   .status.error { color:var(--hot); }
   .note { margin-top:28px; padding-top:16px; border-top:1px solid var(--line); color:var(--mute); font-size:14px; max-width:64ch; }
-  code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.92em; }
+  code { font-family:var(--mono); font-size:.92em; background:#f0f0f3; padding:1px 4px; border-radius:3px; }
+  .star { display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin:0 0 28px; padding:10px 14px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:14px; }
+  .star a.btn { display:inline-flex; gap:6px; align-items:center; padding:6px 12px; border:1px solid var(--ink); border-radius:6px; background:var(--ink); color:#fff; text-decoration:none; white-space:nowrap; }
+  .star a.btn:hover { background:#000; }
+  .star span.muted { color:var(--mute); }
+  .author { display:flex; gap:16px; align-items:center; margin:0 0 28px; }
+  .author img { width:56px; height:56px; border-radius:50%; border:1px solid var(--line); flex:none; }
+  .author p { margin:0; font-size:15px; }
+  .author p.links { font-size:14px; margin-top:2px; }
+  .author a { color:var(--accent); text-decoration:none; }
+  .author a:hover { text-decoration:underline; }
+  .author .sep { color:var(--line); margin:0 8px; }
   #share { display:none; }
   #share.on { display:block; }
   .preview { margin-top:14px; display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; }
@@ -54,8 +68,21 @@
 </head>
 <body>
 <main>
+  <div class="star">
+    <span><strong>Like this?</strong> <span class="muted">Star Stella — a coding agent that builds its own tools, mines its own skills, and always ships with receipts.</span></span>
+    <a class="btn" href="https://github.com/macanderson/stella" target="_blank" rel="noopener">★ Star macanderson/stella</a>
+  </div>
+
   <h1>Token tax meter</h1>
   <p class="lede">The same sentence in six languages, sent to each model you pick. Every number is the billed input count reported by the provider, with the fixed message envelope subtracted. Nothing is estimated.</p>
+
+  <div class="author">
+    <a href="https://github.com/macanderson" target="_blank" rel="noopener"><img src="https://avatars.githubusercontent.com/u/542881?v=4" alt="Mac Anderson" width="56" height="56"></a>
+    <div>
+      <p>Built by <a href="https://github.com/macanderson" target="_blank" rel="noopener"><strong>Mac Anderson</strong></a> — founder &amp; CEO of <a href="https://oxagen.sh" target="_blank" rel="noopener">Oxagen</a>, builder of AI agents and AI agent infrastructure.</p>
+      <p class="links"><a href="https://github.com/macanderson" target="_blank" rel="noopener">GitHub</a><span class="sep">·</span><a href="https://x.com/macandersoncto" target="_blank" rel="noopener">X @macandersoncto</a><span class="sep">·</span><a href="https://www.linkedin.com/in/macanderson" target="_blank" rel="noopener">LinkedIn</a></p>
+    </div>
+  </div>
 
   <fieldset>
     <legend>Phrase</legend>
@@ -271,11 +298,17 @@ $("copy").addEventListener("click", async () => {
 const W = 1080, H = 1350;
 const canvas = $("card");
 const ctx = canvas.getContext("2d");
-const MONO = '"Courier New", Courier, "Liberation Mono", monospace';
+const MONO = '"IBM Plex Mono", "Courier New", Courier, monospace';
 const SANS = '-apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Myanmar", "Noto Sans Devanagari", "Noto Sans Arabic", "Noto Sans SC", sans-serif';
 
-function setupShare(models) {
+// Canvas ignores @font-face until the face is actually loaded; force it.
+const fontsReady = Promise.all(
+  ['bold 50px "IBM Plex Mono"', '22px "IBM Plex Mono"', '500 22px "IBM Plex Mono"', 'italic 27px "IBM Plex Mono"'].map((f) => document.fonts.load(f).catch(() => {}))
+);
+
+async function setupShare(models) {
   if (!models.length) return;
+  await fontsReady;
   const sel = $("cashier");
   sel.innerHTML = models.map((m) => `<option value="${m.id}">${m.label}</option>`).join("");
   // Default to the model with the widest gap — that's the funny one.
@@ -399,8 +432,8 @@ function drawReceipt(m) {
   ctx.textAlign = "right"; ctx.fillText(new Date().toISOString().slice(0, 10), R, y); y += 34;
   ctx.textAlign = "left"; ctx.fillText("ITEM: 1 × sentence, as spoken by a human", L, y); y += 40;
 
-  const lines = wrap(`“${phrase}”`, `italic 27px ${SANS}`, R - L, 2);
-  ctx.font = `italic 27px ${SANS}`; ctx.fillStyle = "#222";
+  const lines = wrap(`“${phrase}”`, `italic 26px ${MONO}`, R - L, 2);
+  ctx.font = `italic 26px ${MONO}`; ctx.fillStyle = "#222";
   for (const ln of lines) { ctx.fillText(ln, L, y); y += 36; }
   y += 6; dashed(L, R, y); y += 38;
 
@@ -437,8 +470,8 @@ function drawReceipt(m) {
   }
   y += 6; dashed(L, R, y); y += 40;
 
-  ctx.textAlign = "center"; ctx.fillStyle = "#151515"; ctx.font = `bold 24px ${SANS}`;
-  for (const ln of wrap(quip(w.lang, w.ratio), `bold 24px ${SANS}`, R - L, 2)) { ctx.fillText(ln, W / 2, y); y += 32; }
+  ctx.textAlign = "center"; ctx.fillStyle = "#151515"; ctx.font = `bold 24px ${MONO}`;
+  for (const ln of wrap(quip(w.lang, w.ratio), `bold 24px ${MONO}`, R - L, 2)) { ctx.fillText(ln, W / 2, y); y += 32; }
   y += 10;
   const barY = y;
 
@@ -451,10 +484,10 @@ function drawReceipt(m) {
 
   // stamp
   ctx.save();
-  ctx.translate(W / 2 + 250, barY + 10); ctx.rotate(-0.12);
+  ctx.translate(W / 2 + 255, barY + 2); ctx.rotate(-0.12);
   ctx.globalAlpha = 0.85; ctx.strokeStyle = "#c81e1e"; ctx.lineWidth = 6;
-  ctx.strokeRect(-190, -42, 380, 84);
-  ctx.fillStyle = "#c81e1e"; ctx.font = `bold 40px ${MONO}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.strokeRect(-165, -36, 330, 72);
+  ctx.fillStyle = "#c81e1e"; ctx.font = `bold 34px ${MONO}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText("PAID IN TOKENS", 0, 2);
   ctx.restore();
   ctx.restore();

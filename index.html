@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token tax meter</title>
+<style>
+  :root { --ink:#17171a; --mute:#6b6b73; --line:#d9d9de; --accent:#1d4ed8; --hot:#b42318; --bg:#fafafa; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 "Iowan Old Style","Palatino Linotype",Georgia,serif; }
+  main { max-width:960px; margin:0 auto; padding:40px 20px 64px; }
+  h1 { font-size:34px; line-height:1.1; margin:0 0 8px; font-weight:400; letter-spacing:-0.01em; }
+  p.lede { color:var(--mute); margin:0 0 24px; max-width:60ch; }
+  fieldset { border:1px solid var(--line); border-radius:8px; padding:12px 16px; margin:0 0 16px; }
+  legend { color:var(--mute); font-size:13px; padding:0 6px; }
+  .models { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:6px 16px; }
+  label.m { display:flex; gap:8px; align-items:center; font-size:15px; }
+  label.m.off { color:var(--mute); }
+  .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:16px 0 20px; }
+  button { font:inherit; font-size:15px; padding:8px 14px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--ink); color:#fff; border-color:var(--ink); }
+  button:disabled { opacity:.5; cursor:default; }
+  .wrap { overflow-x:auto; }
+  table { border-collapse:collapse; font-size:15px; min-width:100%; }
+  th, td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { font-weight:400; color:var(--mute); font-size:13px; vertical-align:bottom; }
+  th.model { text-align:right; }
+  td.n { text-align:right; font-variant-numeric:tabular-nums; }
+  td.n small { color:var(--mute); margin-left:6px; }
+  td.n.hot small { color:var(--hot); }
+  tr.env td { color:var(--mute); font-size:13px; }
+  .status { margin-top:14px; color:var(--mute); font-size:14px; min-height:1.5em; }
+  .status.error { color:var(--hot); }
+  .note { margin-top:28px; padding-top:16px; border-top:1px solid var(--line); color:var(--mute); font-size:14px; max-width:64ch; }
+  code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.92em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Token tax meter</h1>
+  <p class="lede">The same sentence in six languages, sent to each model you pick. Every number is the billed input count reported by the provider, with the fixed message envelope subtracted. Nothing is estimated.</p>
+
+  <fieldset>
+    <legend>Models</legend>
+    <div class="models" id="models"></div>
+  </fieldset>
+
+  <div class="controls">
+    <button class="primary" id="run">Measure</button>
+    <button id="csv" disabled>Download CSV</button>
+    <button id="copy" disabled>Copy as text</button>
+  </div>
+
+  <div class="wrap">
+    <table aria-live="polite">
+      <thead><tr id="head"><th>Language</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="status" id="status"></div>
+
+  <div class="note">
+    Anthropic counts come from <code>/v1/messages/count_tokens</code>. OpenAI has no count endpoint, so each cell is <code>usage.prompt_tokens</code> from a one-token completion. The envelope is measured per model by sending a single character and subtracting one. Edit <code>models.json</code> to add or remove models; keys live in <code>.env.local</code>.
+  </div>
+</main>
+
+<script>
+const SENTENCES = [
+  ["English", "Hello, how are you today? I hope everything is going well."],
+  ["Spanish", "Hola, ¿cómo estás hoy? Espero que todo vaya bien."],
+  ["Arabic",  "مرحبا، كيف حالك اليوم؟ أتمنى أن يكون كل شيء على ما يرام."],
+  ["Hindi",   "नमस्ते, आज आप कैसे हैं? मुझे आशा है कि सब कुछ ठीक चल रहा है।"],
+  ["Chinese", "你好，你今天怎么样？我希望一切都顺利。"],
+  ["Burmese", "မင်္ဂလာပါ၊ ဒီနေ့ နေကောင်းလား? အားလုံး ကောင်းကောင်းဖြစ်ပါစေလို့ မျှော်လင့်ပါတယ်။"],
+];
+
+const $ = (id) => document.getElementById(id);
+let config = null;
+let results = null; // { [modelId]: { envelope, counts: {lang: n}, error } }
+
+async function init() {
+  config = await (await fetch("/api/config")).json();
+  const box = $("models");
+  for (const m of config.models) {
+    const hasKey = config.keys[m.provider];
+    const l = document.createElement("label");
+    l.className = "m" + (hasKey ? "" : " off");
+    l.innerHTML = `<input type="checkbox" value="${m.id}" ${hasKey ? "checked" : "disabled"}> ${m.label}${hasKey ? "" : " (no key)"}`;
+    box.appendChild(l);
+  }
+  const missing = Object.entries(config.keys).filter(([, v]) => !v).map(([k]) => k);
+  if (missing.length) $("status").textContent = `No key for ${missing.join(" or ")} in .env.local — those models are disabled.`;
+}
+
+function selected() {
+  const ids = [...document.querySelectorAll("#models input:checked")].map((i) => i.value);
+  return config.models.filter((m) => ids.includes(m.id));
+}
+
+async function count(m, text) {
+  const r = await fetch("/api/count", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: m.provider, model: m.id, text }) });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d.tokens;
+}
+
+function render(models) {
+  const head = $("head");
+  head.innerHTML = "<th>Language</th>" + models.map((m) => `<th class="model">${m.label}</th>`).join("");
+  const rows = $("rows");
+  rows.innerHTML = "";
+  for (const [lang] of SENTENCES) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${lang}</td>` + models.map((m) => {
+      const r = results[m.id];
+      const n = r?.counts?.[lang];
+      if (r?.error) return `<td class="n">—</td>`;
+      if (n == null) return `<td class="n">…</td>`;
+      const en = r.counts.English;
+      const ratio = en ? n / en : null;
+      const hot = ratio != null && ratio >= 2;
+      return `<td class="n${hot ? " hot" : ""}">${n}${ratio != null ? `<small>${ratio.toFixed(2)}×</small>` : ""}</td>`;
+    }).join("");
+    rows.appendChild(tr);
+  }
+  const env = document.createElement("tr");
+  env.className = "env";
+  env.innerHTML = `<td>envelope</td>` + models.map((m) => `<td class="n">${results[m.id]?.error ? results[m.id].error : results[m.id]?.envelope ?? "…"}</td>`).join("");
+  rows.appendChild(env);
+}
+
+$("run").addEventListener("click", async () => {
+  const models = selected();
+  if (!models.length) { $("status").textContent = "Pick at least one model."; return; }
+  $("run").disabled = true; $("csv").disabled = true; $("copy").disabled = true;
+  $("status").className = "status";
+  results = Object.fromEntries(models.map((m) => [m.id, { envelope: null, counts: {} }]));
+  render(models);
+
+  for (const m of models) {
+    const r = results[m.id];
+    try {
+      $("status").textContent = `${m.label}: measuring envelope…`;
+      r.envelope = (await count(m, "x")) - 1;
+      for (const [lang, text] of SENTENCES) {
+        $("status").textContent = `${m.label}: ${lang}…`;
+        r.counts[lang] = Math.max(1, (await count(m, text)) - r.envelope);
+        render(models);
+      }
+    } catch (e) {
+      r.error = e.message;
+      render(models);
+    }
+  }
+  const failed = models.filter((m) => results[m.id].error);
+  $("status").className = "status" + (failed.length ? " error" : "");
+  $("status").textContent = failed.length
+    ? `Done. Failed: ${failed.map((m) => `${m.label} (${results[m.id].error})`).join("; ")}`
+    : "Done.";
+  $("run").disabled = false; $("csv").disabled = false; $("copy").disabled = false;
+});
+
+function table(models) {
+  const header = ["language", ...models.map((m) => m.id)];
+  const lines = SENTENCES.map(([lang]) => [lang, ...models.map((m) => results[m.id].counts[lang] ?? "")]);
+  return { header, lines };
+}
+
+$("csv").addEventListener("click", () => {
+  const models = selected().filter((m) => !results[m.id].error);
+  const { header, lines } = table(models);
+  const csv = [header, ...lines].map((r) => r.join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = `token-tax-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+});
+
+$("copy").addEventListener("click", async () => {
+  const models = selected().filter((m) => !results[m.id].error);
+  const { header, lines } = table(models);
+  const text = [header.join("\t"), ...lines.map((r) => r.join("\t"))].join("\n");
+  try { await navigator.clipboard.writeText(text); $("copy").textContent = "Copied"; setTimeout(() => ($("copy").textContent = "Copy as text"), 1500); }
+  catch { $("status").textContent = "Clipboard blocked — select the table and copy manually."; }
+});
+
+init();
+</script>
+</body>
+</html>
